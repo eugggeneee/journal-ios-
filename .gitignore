@@ -1,0 +1,11 @@
+# Генерируется XcodeGen из project.yml
+Journal.xcodeproj/
+Journal/Info.plist
+
+# Xcode и сборка
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.DS_Store
+*.ipa

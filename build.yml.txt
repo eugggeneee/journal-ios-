@@ -1,0 +1,169 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-version --sdk iphoneos
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Journal.xcodeproj \
+            -scheme Journal \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log | grep -E "error:|warning: unre|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build.log
+
+      - name: Show errors on failure
+        if: failure()
+        run: grep -E "error:" build.log | sort -u | head -n 100 || true
+
+      - name: Package IPA
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -n 1)
+          test -n "$APP"
+          rm -rf Payload Journal.ipa
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry Journal.ipa Payload
+          ls -lh Journal.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Journal-ipa
+          path: Journal.ipa
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Journal.ipa
+
+  test:
+    name: Unit tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick an iPhone simulator
+        run: echo "SIM_UDID=$(bash .github/scripts/pick_simulator.sh)" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Journal.xcodeproj \
+            -scheme Journal \
+            -destination "id=$SIM_UDID" \
+            -derivedDataPath build \
+            -only-testing:JournalTests \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee test.log | grep -E "error:|Test Case.*(passed|failed)|Executed|TEST (SUCCEEDED|FAILED)" || true
+          grep -q "TEST SUCCEEDED" test.log
+
+      - name: Upload test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: test.log
+
+  screenshots:
+    name: App screenshots
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick an iPhone simulator
+        run: echo "SIM_UDID=$(bash .github/scripts/pick_simulator.sh)" >> "$GITHUB_ENV"
+
+      - name: Run screenshot tour
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Journal.xcodeproj \
+            -scheme Screenshots \
+            -destination "id=$SIM_UDID" \
+            -derivedDataPath build \
+            -resultBundlePath build/Screenshots.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee screenshots.log | grep -E "error:|Test Case.*(passed|failed)|TEST (SUCCEEDED|FAILED)" || true
+          grep -q "TEST SUCCEEDED" screenshots.log
+
+      - name: Export screenshots
+        if: always()
+        run: |
+          pip3 install --quiet pillow || true
+          xcrun xcresulttool export attachments \
+            --path build/Screenshots.xcresult \
+            --output-path build/attachments || true
+          python3 .github/scripts/collect_screenshots.py build/attachments screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Screenshots
+          path: screenshots
+          if-no-files-found: warn
+
+      - name: Upload log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-log
+          path: screenshots.log
