@@ -12,7 +12,7 @@ final class ScreenshotTests: XCTestCase {
     func testOnboarding() {
         let app = launch(dark: false, args: ["-onboarding"])
         shot("00-onboarding-welcome", wait: 2)
-        if tap(app.buttons["Продолжить"]) {
+        if tap(button(app, "Продолжить")) {
             shot("00-onboarding-group", wait: 5)
         }
     }
@@ -37,20 +37,20 @@ final class ScreenshotTests: XCTestCase {
                 shot("02-lesson-\(s)")
                 closeSheet(app)
             }
-            if tap(app.buttons["Отметить пропуск 4 пары"]) {
+            if tap(button(app, "Отметить пропуск 4 пары")) {
                 shot("03-absence-quick-\(s)")
                 closeSheet(app)
             }
-            if tap(app.buttons["Выбрать дату"]) {
+            if tap(button(app, "Выбрать дату")) {
                 shot("04-date-picker-\(s)")
                 closeSheet(app)
             }
-            if tap(app.buttons["Добавить"]) {
+            if tap(button(app, "Добавить")) {
                 shot("05-add-menu-\(s)")
                 dismissMenu(app)
             }
-            if tap(app.buttons["Ещё"]) {
-                if tap(app.buttons["Звонки"]) {
+            if tap(button(app, "Ещё")) {
+                if tap(button(app, "Звонки")) {
                     shot("06-day-bells-\(s)")
                     closeSheet(app)
                 } else {
@@ -66,11 +66,11 @@ final class ScreenshotTests: XCTestCase {
                 shot("11-grades-subject-\(s)", wait: 1.5)
                 back(app)
             }
-            if tap(app.segmentedControls.buttons["Журнал"]) {
+            if tap(app.segmentedControls.buttons.matching(NSPredicate(format: "label == %@", "Журнал")).firstMatch) {
                 shot("12-grades-journal-\(s)")
-                tap(app.segmentedControls.buttons["Предметы"])
+                tap(app.segmentedControls.buttons.matching(NSPredicate(format: "label == %@", "Предметы")).firstMatch)
             }
-            if tap(app.buttons["Добавить оценку"]) {
+            if tap(button(app, "Добавить оценку")) {
                 shot("13-grade-form-\(s)")
                 closeSheet(app)
             }
@@ -122,6 +122,11 @@ final class ScreenshotTests: XCTestCase {
         add(attachment)
     }
 
+    /// Первая кнопка с точной подписью (на экране может быть несколько совпадений).
+    private func button(_ app: XCUIApplication, _ label: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
     /// Ищет кнопку по части подписи (карточки и строки списков объединяют тексты в одну кнопку),
     /// а если такой нет — обычный текст на экране.
     private func item(_ app: XCUIApplication, _ text: String) -> XCUIElement {
@@ -139,19 +144,19 @@ final class ScreenshotTests: XCTestCase {
     }
 
     private func tapTab(_ app: XCUIApplication, _ name: String) {
-        let inBar = app.tabBars.buttons[name]
+        let inBar = app.tabBars.buttons.matching(NSPredicate(format: "label == %@", name)).firstMatch
         if inBar.waitForExistence(timeout: 4) {
             inBar.tap()
         } else {
-            tap(app.buttons[name].firstMatch)
+            tap(button(app, name))
         }
     }
 
     private func closeSheet(_ app: XCUIApplication) {
         for name in ["Готово", "Отмена"] {
-            let button = app.buttons[name]
-            if button.exists && button.isHittable {
-                button.tap()
+            let candidate = button(app, name)
+            if candidate.exists && candidate.isHittable {
+                candidate.tap()
                 Thread.sleep(forTimeInterval: 0.8)
                 return
             }
@@ -167,9 +172,9 @@ final class ScreenshotTests: XCTestCase {
     }
 
     private func back(_ app: XCUIApplication) {
-        let button = app.navigationBars.buttons.element(boundBy: 0)
-        if button.exists {
-            button.tap()
+        let backButton = app.navigationBars.buttons.element(boundBy: 0)
+        if backButton.exists {
+            backButton.tap()
             Thread.sleep(forTimeInterval: 0.8)
         }
     }
